@@ -3,7 +3,12 @@ from __future__ import annotations
 import inspect
 import unittest
 
-from search_sha256 import _table13_second_block_values
+from search_sha256 import (
+    SECTION_4_1_DELTA_A_ZERO_RANGE,
+    SECTION_4_1_DELTA_E_ZERO_RANGE,
+    SECTION_4_1_W_INDICES,
+    _table13_second_block_values,
+)
 from sha256_reduced.cnf import all_assignments, cnf_accepts, symbol_rules_to_cnf, symbols_to_assignment
 from sha256_reduced.conditions import TABLE14_15_CONDITIONS, failing_conditions
 from sha256_reduced import smt_characteristic
@@ -72,6 +77,15 @@ class SatPipelineDataTests(unittest.TestCase):
         source = inspect.getsource(smt_characteristic.CharacteristicSearch._build_sha2_a)
         self.assertIn('self.e_rows[i], b8', source)
         self.assertIn('self.a_rows[i - 4], b10, b9', source)
+
+    def test_section_4_1_w_shape_matches_paper(self) -> None:
+        self.assertEqual(SECTION_4_1_W_INDICES, frozenset({8, 9, 10, 11, 12, 16, 17, 24, 26}))
+
+    def test_section_4_1_delta_a_zero_range_matches_paper(self) -> None:
+        self.assertEqual(list(SECTION_4_1_DELTA_A_ZERO_RANGE), list(range(19, 39)))
+
+    def test_section_4_1_delta_e_zero_range_matches_paper(self) -> None:
+        self.assertEqual(list(SECTION_4_1_DELTA_E_ZERO_RANGE), list(range(23, 39)))
 
 
 if __name__ == "__main__":

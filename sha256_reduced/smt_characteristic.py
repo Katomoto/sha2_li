@@ -192,8 +192,8 @@ class Algorithm1Options:
     op5: bool = True
     op6: bool = True
     op7: bool = True
-    op8: bool = True
-    include_value_transitions: bool = True
+    op8: bool = False
+    value_transition_steps: frozenset[int] | None = None
 
 
 @dataclass(frozen=True)
@@ -419,9 +419,9 @@ class CharacteristicSearch:
         for i in range(self.rounds):
             self._build_sha2_e(i)
             self._build_sha2_a(i)
-            if self.options.include_value_transitions:
+            if self._use_value_transitions(i):
                 self._build_value_transitions(i)
-            if self.options.op8 and i >= 16:
+            if i >= 16:
                 self._build_sha2_w(i)
         self.final_state = (
             self.a_rows[self.rounds - 1],
@@ -433,6 +433,11 @@ class CharacteristicSearch:
             self.e_rows[self.rounds - 3] if self.rounds >= 3 else self.e_rows[-2],
             self.e_rows[self.rounds - 4] if self.rounds >= 4 else self.e_rows[-3],
         )
+
+    def _use_value_transitions(self, i: int) -> bool:
+        if self.options.value_transition_steps is not None:
+            return i in self.options.value_transition_steps
+        return self.options.op8
 
     def _build_value_transitions(self, i: int) -> None:
         z3 = require_z3()
@@ -596,6 +601,14 @@ class CharacteristicSearch:
             if i not in nonzero_indices:
                 constrain_word_pattern(self.optimizer, self.w[i], "=" * BITS)
 
+    def constrain_modular_zero(self, kind: str, index: int, *, method1: bool = True) -> None:
+        zero = DiffWord.equal(self.optimizer, f"{self.prefix}_{kind}_{index}_zero_mod")
+        apply_expansion(self.optimizer, f"{self.prefix}_{kind}_{index}_zeroexp", zero, self._word(kind, index), method1)
+
+    def constrain_modular_zero_range(self, kind: str, start: int, end: int, *, method1: bool = True) -> None:
+        for index in range(start, end + 1):
+            self.constrain_modular_zero(kind, index, method1=method1)
+
     def constrain_final_state_zero(self) -> None:
         for word in self.final_state:
             constrain_word_pattern(self.optimizer, word, "=" * BITS)
@@ -607,15 +620,29 @@ class CharacteristicSearch:
         constrain_word_pattern(self.optimizer, self._word(kind, index), pattern)
 
     def minimize_weight(self, words: Sequence[DiffWord]) -> None:
-        terms = [self.z3.If(bit.d, 1, 0) for word in words for bit in word.bits]
-        self.optimizer.minimize(self.z3.Sum(*terms))
+        self.optimizer.minimize(self.weight_expr(words))
 
-    def solve(self, *, timeout_ms: int | None = None) -> CharacteristicResult | None:
+    def weight_expr(self, words: Sequence[DiffWord]) -> Any:
+        terms = [self.z3.If(bit.d, 1, 0) for word in words for bit in word.bits]
+        return self.z3.Sum(*terms)
+
+    def model_weight(self, model: Any, words: Sequence[DiffWord]) -> int:
+        return model.eval(self.weight_expr(words), model_completion=True).as_long()
+
+    def solve_model(self, *, timeout_ms: int | None = None) -> Any | None:
         if timeout_ms is not None:
             self.optimizer.set(timeout=timeout_ms)
         if self.optimizer.check() != self.z3.sat:
             return None
-        model = self.optimizer.model()
+        return self.optimizer.model()
+
+    def solve(self, *, timeout_ms: int | None = None) -> CharacteristicResult | None:
+        model = self.solve_model(timeout_ms=timeout_ms)
+        if model is None:
+            return None
+        return self.result_from_model(model)
+
+    def result_from_model(self, model: Any) -> CharacteristicResult:
         return CharacteristicResult(
             w=tuple(self._model_word(model, self.w[i]) for i in range(self.rounds)),
             a={i: self._model_word(model, word) for i, word in self.a_rows.items()},
