@@ -6,7 +6,16 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from .core import RoundState, compress, digest_blocks, expand_message
-from .vectors import COLLISION_VECTORS, SFS_VECTORS, CollisionVector, SfsCollisionVector
+from .vectors import (
+    JOURNAL_EXTENSION_COLLISION_VECTORS,
+    JOURNAL_EXTENSION_SFS_VECTORS,
+    SFS_VECTORS,
+    TABLE_13_31_STEP_COLLISION,
+    TABLE_25_39_STEP_SFS,
+    TABLE_5_39_STEP_SFS,
+    CollisionVector,
+    SfsCollisionVector,
+)
 
 
 @dataclass(frozen=True)
@@ -78,6 +87,7 @@ def trace_collision_second_block(vector: CollisionVector) -> tuple[DifferentialR
 
     sfs_vector = SfsCollisionVector(
         name=f"{vector.name} second block",
+        source=vector.source,
         rounds=vector.rounds,
         cv=left_cv,
         message=vector.blocks[1],
@@ -102,7 +112,7 @@ def render_rows(rows: Sequence[DifferentialRow], *, nonzero_only: bool = True) -
 
 
 TRACE_TARGETS = {
-    "table5": lambda: (SFS_VECTORS[0].name, trace_sfs(SFS_VECTORS[0])),
-    "table13": lambda: (COLLISION_VECTORS[0].name, trace_collision_second_block(COLLISION_VECTORS[0])),
-    "table25": lambda: (SFS_VECTORS[1].name, trace_sfs(SFS_VECTORS[1])),
+    "table5": lambda: (TABLE_5_39_STEP_SFS.name, trace_sfs(TABLE_5_39_STEP_SFS)),
+    "table13": lambda: (TABLE_13_31_STEP_COLLISION.name, trace_collision_second_block(TABLE_13_31_STEP_COLLISION)),
+    "table25": lambda: (TABLE_25_39_STEP_SFS.name, trace_sfs(TABLE_25_39_STEP_SFS)),
 }

@@ -10,6 +10,7 @@ from .core import SHA256_IV, parse_words
 @dataclass(frozen=True)
 class SfsCollisionVector:
     name: str
+    source: str
     rounds: int
     cv: tuple[int, ...]
     message: tuple[int, ...]
@@ -20,6 +21,7 @@ class SfsCollisionVector:
 @dataclass(frozen=True)
 class CollisionVector:
     name: str
+    source: str
     rounds: int
     iv: tuple[int, ...]
     blocks: tuple[tuple[int, ...], ...]
@@ -29,6 +31,7 @@ class CollisionVector:
 
 TABLE_5_39_STEP_SFS = SfsCollisionVector(
     name="Table 5: 39-step SHA-256 SFS collision",
+    source="conference-2024",
     rounds=39,
     cv=parse_words(
         "02b19d5a 88e1df04 5ea3c7b7 f2f7d1a4 "
@@ -55,6 +58,7 @@ TABLE_5_39_STEP_SFS = SfsCollisionVector(
 
 TABLE_13_31_STEP_COLLISION = CollisionVector(
     name="Table 13: 31-step SHA-256 two-block collision",
+    source="journal-extension",
     rounds=31,
     iv=SHA256_IV,
     blocks=(
@@ -94,6 +98,7 @@ TABLE_13_31_STEP_COLLISION = CollisionVector(
 
 TABLE_25_39_STEP_SFS = SfsCollisionVector(
     name="Table 25: 39-step SHA-256 SFS collision from quantum section",
+    source="journal-extension",
     rounds=39,
     cv=parse_words(
         "0fe4f3b8 15890d7f 7eed03c9 52e8693b "
@@ -118,5 +123,10 @@ TABLE_25_39_STEP_SFS = SfsCollisionVector(
 )
 
 
-SFS_VECTORS = (TABLE_5_39_STEP_SFS, TABLE_25_39_STEP_SFS)
-COLLISION_VECTORS = (TABLE_13_31_STEP_COLLISION,)
+CONFERENCE_2024_SFS_VECTORS = (TABLE_5_39_STEP_SFS,)
+JOURNAL_EXTENSION_SFS_VECTORS = (TABLE_25_39_STEP_SFS,)
+JOURNAL_EXTENSION_COLLISION_VECTORS = (TABLE_13_31_STEP_COLLISION,)
+
+# Default to the 2024 conference paper the user most recently selected.
+SFS_VECTORS = CONFERENCE_2024_SFS_VECTORS
+COLLISION_VECTORS: tuple[CollisionVector, ...] = ()

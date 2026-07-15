@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import inspect
 import unittest
 
 from search_sha256 import _table13_second_block_values
 from sha256_reduced.cnf import all_assignments, cnf_accepts, symbol_rules_to_cnf, symbols_to_assignment
 from sha256_reduced.conditions import TABLE14_15_CONDITIONS, failing_conditions
+from sha256_reduced import smt_characteristic
 from sha256_reduced.smt_characteristic import (
     add_rules,
     bool_full_rows,
@@ -65,6 +67,11 @@ class SatPipelineDataTests(unittest.TestCase):
 
     def test_solver_presence_probe_is_safe_without_z3(self) -> None:
         self.assertIsInstance(z3_available(), bool)
+
+    def test_sha2_a_builder_uses_section2_state_update_formula(self) -> None:
+        source = inspect.getsource(smt_characteristic.CharacteristicSearch._build_sha2_a)
+        self.assertIn('self.e_rows[i], b8', source)
+        self.assertIn('self.a_rows[i - 4], b10, b9', source)
 
 
 if __name__ == "__main__":

@@ -543,10 +543,17 @@ class CharacteristicSearch:
             self.value_a[i - 3],
         )
         b8 = add2(self.optimizer, f"{self.prefix}_B_{i}_8", b6, b7)
-        b9 = add2(self.optimizer, f"{self.prefix}_B_{i}_9", self.a_rows[i - 4], b8)
+        # The state-update formula in Section 2 is:
+        #   A_i = E_i - A_{i-4} + Σ0(A_{i-1}) + MAJ(...)
+        # Therefore we first form E_i + b8 and then constrain
+        #   A_{i-4} + b10 = E_i + b8,
+        # so b10 represents the modular difference later expanded to ΔA_i.
+        #
+        # The pseudo-code layout in Algorithm 1 appears inconsistent here; the
+        # implementation follows the algebraic state-update equation instead.
+        b9 = add2(self.optimizer, f"{self.prefix}_B_{i}_9", self.e_rows[i], b8)
         b10 = DiffWord.fresh(f"{self.prefix}_B_{i}_10", self.optimizer)
-        # B9 + B10 = Ei, then Ai is an expansion of B10.
-        add2_target(self.optimizer, f"{self.prefix}_Aeq_{i}", b9, b10, self.e_rows[i])
+        add2_target(self.optimizer, f"{self.prefix}_Aeq_{i}", self.a_rows[i - 4], b10, b9)
         self.a_rows[i] = DiffWord.fresh(f"{self.prefix}_A_{i}", self.optimizer)
         apply_expansion(self.optimizer, f"{self.prefix}_ExpA_{i}", b10, self.a_rows[i], self.options.op6)
 

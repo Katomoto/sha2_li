@@ -7,7 +7,15 @@ from dataclasses import dataclass
 
 from .differential import TRACE_TARGETS, render_rows
 from .core import compress, digest_blocks, format_words, word_xor_diff
-from .vectors import COLLISION_VECTORS, SFS_VECTORS, CollisionVector, SfsCollisionVector
+from .vectors import (
+    COLLISION_VECTORS,
+    CONFERENCE_2024_SFS_VECTORS,
+    JOURNAL_EXTENSION_COLLISION_VECTORS,
+    JOURNAL_EXTENSION_SFS_VECTORS,
+    SFS_VECTORS,
+    CollisionVector,
+    SfsCollisionVector,
+)
 
 
 @dataclass(frozen=True)
@@ -51,9 +59,21 @@ def verify_collision(vector: CollisionVector) -> VerificationResult:
     )
 
 
-def all_results() -> tuple[VerificationResult, ...]:
-    sfs = tuple(verify_sfs(vector) for vector in SFS_VECTORS)
-    collisions = tuple(verify_collision(vector) for vector in COLLISION_VECTORS)
+def all_results(paper: str = "2024") -> tuple[VerificationResult, ...]:
+    if paper == "2024":
+        sfs_vectors = CONFERENCE_2024_SFS_VECTORS
+        collision_vectors = COLLISION_VECTORS
+    elif paper == "journal":
+        sfs_vectors = JOURNAL_EXTENSION_SFS_VECTORS
+        collision_vectors = JOURNAL_EXTENSION_COLLISION_VECTORS
+    elif paper == "all":
+        sfs_vectors = CONFERENCE_2024_SFS_VECTORS + JOURNAL_EXTENSION_SFS_VECTORS
+        collision_vectors = JOURNAL_EXTENSION_COLLISION_VECTORS
+    else:
+        raise ValueError(f"unknown paper selection: {paper}")
+
+    sfs = tuple(verify_sfs(vector) for vector in sfs_vectors)
+    collisions = tuple(verify_collision(vector) for vector in collision_vectors)
     return sfs + collisions
 
 
@@ -82,13 +102,19 @@ def main() -> int:
         help="Only print failing vectors.",
     )
     parser.add_argument(
+        "--paper",
+        choices=("2024", "journal", "all"),
+        default="2024",
+        help="Select vectors from the 2024 conference paper, the later journal-only additions, or both.",
+    )
+    parser.add_argument(
         "--trace",
         choices=tuple(TRACE_TARGETS) + ("all",),
         help="Print paper-style u/n/= signed-difference rows for a vector.",
     )
     args = parser.parse_args()
 
-    results = all_results()
+    results = all_results(args.paper)
     for result in results:
         if result.passed and args.quiet:
             continue

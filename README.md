@@ -3,9 +3,14 @@
 This repository contains a compact reproduction harness for the SHA-256 parts of
 Li et al., *New Records in Collision Attacks on SHA-2*.
 
-The code verifies the paper's concrete published SHA-256 outputs:
+Using the 2024 conference paper as the default baseline, the code verifies its
+concrete published SHA-256 output:
 
 - Table 5: practical 39-step SHA-256 semi-free-start collision.
+
+Journal-extension-only artifacts from the later expanded version are still kept
+in the repo, but they are no longer the default:
+
 - Table 13: practical two-block 31-step SHA-256 collision.
 - Table 25: 39-step SHA-256 semi-free-start collision used in the quantum attack section.
 
@@ -17,6 +22,7 @@ that recomputes the paper's hashes from the published message words.
 
 ```bash
 python3 reproduce_sha256.py
+python3 reproduce_sha256.py --paper all
 ```
 
 Expected result: every vector prints `PASS`, and the computed left/right hashes
@@ -47,10 +53,10 @@ python3 -m pip install -r requirements.txt
 Useful entry points:
 
 ```bash
-python3 search_sha256.py check-table13-conditions
 python3 search_sha256.py char-search --rounds 12 --shape single --single-word 5 --paper-objective
 python3 search_sha256.py char-search --rounds 31 --shape 31 --paper-objective --timeout-ms 600000
 python3 search_sha256.py char-search --rounds 39 --shape 39 --paper-objective --timeout-ms 600000
+python3 search_sha256.py check-table13-conditions
 python3 search_sha256.py msgmod-solve-table13 --timeout-ms 600000
 ```
 
@@ -68,13 +74,13 @@ The SAT/SMT code has two layers:
 - `sha256_reduced.smt_value` implements the value-transition model used for
   message modification and conforming-pair search.
 - `sha256_reduced.conditions` encodes the 164 Table 14/15 message-modification
-  bit conditions for the 31-step SHA-256 attack and checks them against the
-  published Table 13 collision.
+  bit conditions for the journal-extension 31-step SHA-256 attack and checks
+  them against the published Table 13 collision.
 
 ## Scope
 
-This repository reproduces both the published SHA-256 collision instances and
-the SAT/SMT machinery needed to search for signed differential characteristics
-and message-modification constraints. The 31-step and 39-step full searches are
+This repository now defaults to the 2024 conference paper you selected, while
+still retaining journal-only SHA-256 vectors and message-modification material
+from the later expanded version. The 31-step and 39-step full searches remain
 large solver jobs, matching the paper's use of many threads and long-running
 experiments; the included tests focus on deterministic checks that finish quickly.

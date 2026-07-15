@@ -118,7 +118,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Reproduce SHA-256 signed-difference SAT/SMT searches.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    check = sub.add_parser("check-table13-conditions", help="Check Table 14/15 constraints on the published pair.")
+    check = sub.add_parser(
+        "check-table13-conditions",
+        help="Check journal-extension Table 14/15 constraints on the published Table 13 pair.",
+    )
     check.set_defaults(func=cmd_check_table13_conditions)
 
     char = sub.add_parser("char-search", help="Run pure signed-difference characteristic search.")
@@ -146,7 +149,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     char.set_defaults(func=cmd_char_search)
 
-    msgmod = sub.add_parser("msgmod-solve-table13", help="Run value-transition message modification search.")
+    msgmod = sub.add_parser(
+        "msgmod-solve-table13",
+        help="Run the journal-extension Table 13 value-transition message-modification search.",
+    )
     msgmod.add_argument("--timeout-ms", type=int, default=30_000)
     msgmod.set_defaults(func=cmd_msgmod_solve_table13)
 
