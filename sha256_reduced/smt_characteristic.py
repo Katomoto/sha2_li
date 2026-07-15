@@ -602,8 +602,10 @@ class CharacteristicSearch:
                 constrain_word_pattern(self.optimizer, self.w[i], "=" * BITS)
 
     def constrain_modular_zero(self, kind: str, index: int, *, method1: bool = True) -> None:
-        zero = DiffWord.equal(self.optimizer, f"{self.prefix}_{kind}_{index}_zero_mod")
-        apply_expansion(self.optimizer, f"{self.prefix}_{kind}_{index}_zeroexp", zero, self._word(kind, index), method1)
+        # For a whole word, modular difference 0 is exactly the same as a
+        # signed difference consisting only of "=" because x' == x bitwise.
+        # We therefore encode δx = 0 directly as Δx = "====...====".
+        constrain_word_pattern(self.optimizer, self._word(kind, index), "=" * BITS)
 
     def constrain_modular_zero_range(self, kind: str, start: int, end: int, *, method1: bool = True) -> None:
         for index in range(start, end + 1):
