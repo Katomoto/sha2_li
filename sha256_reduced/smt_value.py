@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .conditions import BitCondition, add_conditions_to_solver
+from .conditions import BitCondition, BitRef, add_conditions_to_solver
 from .core import K, WORD_MASK
-from .solver import MissingSolverError, bit, require_z3
+from .solver import MissingSolverError, bit, configure_solver_instance, require_z3
 
 
 def _bv32(value: int) -> Any:
@@ -158,6 +158,69 @@ class Sha256ValueModel:
             else:
                 raise ValueError(f"unsupported signed-difference character: {char!r}")
 
+    def add_component_signed_symbol(
+        self,
+        function: str,
+        input_refs: Sequence[BitRef | None],
+        bit_index: int,
+        symbol: str,
+    ) -> None:
+        """Constrain one Boolean/rotation component output symbol.
+
+        ``input_refs`` contains the word bits used by the component.  A
+        ``None`` reference denotes the zero introduced by a logical shift in
+        the small-sigma functions.
+        """
+
+        if len(input_refs) != 3:
+            raise ValueError("component transitions must contain exactly three inputs")
+        left_inputs: list[Any] = []
+        right_inputs: list[Any] = []
+        for reference in input_refs:
+            if reference is None:
+                left_inputs.append(self.z3.BoolVal(False))
+                right_inputs.append(self.z3.BoolVal(False))
+            else:
+                left_word, right_word = self._word_pair(reference.kind, reference.index)
+                left_inputs.append(bit(left_word, reference.bit) == 1)
+                right_inputs.append(bit(right_word, reference.bit) == 1)
+
+        def apply_component(inputs: Sequence[Any]) -> Any:
+            def xor3(left: Any, middle: Any, right: Any) -> Any:
+                return self.z3.Xor(self.z3.Xor(left, middle), right)
+
+            if function == "if":
+                return self.z3.Xor(
+                    self.z3.And(inputs[0], inputs[1]),
+                    self.z3.And(self.z3.Not(inputs[0]), inputs[2]),
+                )
+            if function == "maj":
+                return xor3(
+                    self.z3.And(inputs[0], inputs[1]),
+                    self.z3.And(inputs[0], inputs[2]),
+                    self.z3.And(inputs[1], inputs[2]),
+                )
+            if function == "xor3":
+                return xor3(inputs[0], inputs[1], inputs[2])
+            raise ValueError(f"unknown component function: {function!r}")
+
+        if not 0 <= bit_index < 32:
+            raise ValueError(f"component bit index must be between 0 and 31, got {bit_index}")
+        left_bit = apply_component(left_inputs)
+        right_bit = apply_component(right_inputs)
+        if symbol == "=":
+            self.solver.add(left_bit == right_bit)
+        elif symbol == "0":
+            self.solver.add(self.z3.Not(left_bit), self.z3.Not(right_bit))
+        elif symbol == "1":
+            self.solver.add(left_bit, right_bit)
+        elif symbol == "n":
+            self.solver.add(self.z3.Not(left_bit), right_bit)
+        elif symbol == "u":
+            self.solver.add(left_bit, self.z3.Not(right_bit))
+        else:
+            raise ValueError(f"unsupported component output symbol: {symbol!r}")
+
     def add_bit_conditions(self, conditions: Sequence[BitCondition]) -> None:
         values: dict[tuple[str, int], object] = {("__solver__", 0): self.solver}
         for i, word in enumerate(self.left.w):
@@ -166,9 +229,19 @@ class Sha256ValueModel:
         values.update({("E", i): word for i, word in self.left.e.items()})
         add_conditions_to_solver(conditions, values)
 
-    def solve(self, *, timeout_ms: int | None = None) -> Mapping[str, tuple[int, ...]] | None:
-        if timeout_ms is not None:
-            self.solver.set(timeout=timeout_ms)
+    def solve(
+        self,
+        *,
+        timeout_ms: int | None = None,
+        random_seed: int | None = None,
+        solver_threads: int | None = None,
+    ) -> Mapping[str, tuple[int, ...]] | None:
+        configure_solver_instance(
+            self.solver,
+            timeout_ms=timeout_ms,
+            random_seed=random_seed,
+            threads=solver_threads,
+        )
         result = self.solver.check()
         if result != self.z3.sat:
             return None

@@ -87,6 +87,5 @@ class SatPipelineDataTests(unittest.TestCase):
     def test_section_4_1_delta_e_zero_range_matches_paper(self) -> None:
         self.assertEqual(list(SECTION_4_1_DELTA_E_ZERO_RANGE), list(range(23, 39)))
 
-
 if __name__ == "__main__":
     unittest.main()

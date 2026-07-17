@@ -13,7 +13,7 @@ from typing import Any, Mapping, Sequence
 
 from .cnf import CNF, rows_to_cnf, symbol_rules_to_cnf
 from .core import K
-from .solver import require_z3
+from .solver import configure_solver_instance, require_z3
 
 BITS = 32
 SYMBOL_TO_BITS = {"=": (False, False), "n": (False, True), "u": (True, True)}
@@ -631,15 +631,35 @@ class CharacteristicSearch:
     def model_weight(self, model: Any, words: Sequence[DiffWord]) -> int:
         return model.eval(self.weight_expr(words), model_completion=True).as_long()
 
-    def solve_model(self, *, timeout_ms: int | None = None) -> Any | None:
-        if timeout_ms is not None:
-            self.optimizer.set(timeout=timeout_ms)
+    def solve_model(
+        self,
+        *,
+        timeout_ms: int | None = None,
+        random_seed: int | None = None,
+        solver_threads: int | None = None,
+    ) -> Any | None:
+        configure_solver_instance(
+            self.optimizer,
+            timeout_ms=timeout_ms,
+            random_seed=random_seed,
+            threads=solver_threads,
+        )
         if self.optimizer.check() != self.z3.sat:
             return None
         return self.optimizer.model()
 
-    def solve(self, *, timeout_ms: int | None = None) -> CharacteristicResult | None:
-        model = self.solve_model(timeout_ms=timeout_ms)
+    def solve(
+        self,
+        *,
+        timeout_ms: int | None = None,
+        random_seed: int | None = None,
+        solver_threads: int | None = None,
+    ) -> CharacteristicResult | None:
+        model = self.solve_model(
+            timeout_ms=timeout_ms,
+            random_seed=random_seed,
+            solver_threads=solver_threads,
+        )
         if model is None:
             return None
         return self.result_from_model(model)
