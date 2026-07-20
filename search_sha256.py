@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 from sha256_reduced.conditions import TABLE14_15_CONDITIONS, failing_conditions
@@ -12,12 +13,89 @@ from sha256_reduced.core import digest_blocks, expand_message, format_words
 from sha256_reduced.differential import trace_collision_second_block
 from sha256_reduced.smt_characteristic import Algorithm1Options, CharacteristicSearch
 from sha256_reduced.smt_value import Sha256ValueModel
-from sha256_reduced.solver import MissingSolverError
+from sha256_reduced.solver import MissingSolverError, configure_solver_instance
 from sha256_reduced.vectors import TABLE_13_31_STEP_COLLISION
 
 SECTION_4_1_W_INDICES = frozenset({8, 9, 10, 11, 12, 16, 17, 24, 26})
 SECTION_4_1_DELTA_A_ZERO_RANGE = range(19, 39)
 SECTION_4_1_DELTA_E_ZERO_RANGE = range(23, 39)
+
+
+@dataclass(frozen=True)
+class WeightSearchResult:
+    weight: int | None
+    status: str
+    reason: str | None = None
+    proven_optimal: bool = False
+    model: Any | None = None
+
+
+def _solver_status(solver: Any, check_result: Any, z3: Any) -> tuple[str, str | None]:
+    if check_result == z3.sat:
+        return "SAT", None
+    if check_result == z3.unsat:
+        return "UNSAT", None
+
+    reason = solver.reason_unknown()
+    normalized = reason.lower()
+    if "timeout" in normalized or "canceled" in normalized:
+        return "TIMEOUT", reason
+    return "UNKNOWN", reason
+
+
+def _search_minimum_weight(
+    search: CharacteristicSearch,
+    words: list[Any],
+    *,
+    label: str,
+    seed: int,
+    timeout_ms: int,
+    solver_threads: int | None,
+    minimum_possible: int = 0,
+) -> WeightSearchResult:
+    weight = search.weight_expr(words)
+    solver = search.z3.Solver()
+    solver.add(*search.optimizer.assertions())
+    configure_solver_instance(
+        solver,
+        timeout_ms=timeout_ms,
+        random_seed=seed,
+        threads=solver_threads,
+    )
+
+    check_result = solver.check()
+    status, reason = _solver_status(solver, check_result, search.z3)
+    if status != "SAT":
+        print(f"{label} initial search: {status}" + (f" ({reason})" if reason else ""))
+        return WeightSearchResult(None, status, reason)
+
+    best_model = solver.model()
+    best_weight = search.model_weight(best_model, words)
+    print(f"{label} initial search: SAT (weight={best_weight})")
+
+    while best_weight > minimum_possible:
+        candidate_bound = best_weight - 1
+        solver.add(weight <= candidate_bound)
+        check_result = solver.check()
+        status, reason = _solver_status(solver, check_result, search.z3)
+        if status == "SAT":
+            best_model = solver.model()
+            best_weight = search.model_weight(best_model, words)
+            print(f"{label} tighten weight<={candidate_bound}: SAT (weight={best_weight})")
+            continue
+        if status == "UNSAT":
+            print(f"{label} tighten weight<={candidate_bound}: UNSAT (optimal weight={best_weight})")
+            return WeightSearchResult(best_weight, status, proven_optimal=True, model=best_model)
+
+        print(
+            f"{label} tighten weight<={candidate_bound}: {status}"
+            + (f" ({reason})" if reason else "")
+            + f"; keeping best SAT weight={best_weight}"
+        )
+        return WeightSearchResult(best_weight, status, reason, proven_optimal=False, model=best_model)
+
+    print(f"{label}: SAT (optimal weight={minimum_possible}; reached the theoretical lower bound)")
+    return WeightSearchResult(best_weight, "SAT", proven_optimal=True, model=best_model)
 
 
 def _table13_second_block_values() -> dict[tuple[str, int], int]:
@@ -136,14 +214,18 @@ def _solve_section_4_1_phase1(
     timeout_ms: int,
     solver_threads: int | None,
     options: Algorithm1Options,
-) -> int | None:
+) -> WeightSearchResult:
     phase1 = _build_section_4_1_search(options)
     weight_w_words = [phase1.w[i] for i in range(39)]
-    phase1.minimize_weight(weight_w_words)
-    model1 = phase1.solve_model(timeout_ms=timeout_ms, random_seed=seed, solver_threads=solver_threads)
-    if model1 is None:
-        return None
-    return phase1.model_weight(model1, weight_w_words)
+    return _search_minimum_weight(
+        phase1,
+        weight_w_words,
+        label="phase1",
+        seed=seed,
+        timeout_ms=timeout_ms,
+        solver_threads=solver_threads,
+        minimum_possible=1,
+    )
 
 
 def _solve_section_4_1_phase2(
@@ -152,17 +234,20 @@ def _solve_section_4_1_phase2(
     solver_threads: int | None,
     options: Algorithm1Options,
     tw: int,
-) -> int | None:
+) -> WeightSearchResult:
     phase2 = _build_section_4_1_search(options)
     phase2.optimizer.add(phase2.weight_expr([phase2.w[i] for i in range(39)]) == tw)
     phase2.constrain_modular_zero_range("A", 19, 38, method1=options.op6)
     phase2.constrain_modular_zero_range("E", 23, 38, method1=options.op3)
     weight_a_words = [phase2.a_rows[i] for i in range(39)]
-    phase2.minimize_weight(weight_a_words)
-    model2 = phase2.solve_model(timeout_ms=timeout_ms, random_seed=seed, solver_threads=solver_threads)
-    if model2 is None:
-        return None
-    return phase2.model_weight(model2, weight_a_words)
+    return _search_minimum_weight(
+        phase2,
+        weight_a_words,
+        label="phase2",
+        seed=seed,
+        timeout_ms=timeout_ms,
+        solver_threads=solver_threads,
+    )
 
 
 def _solve_section_4_1_phase3(
@@ -172,18 +257,21 @@ def _solve_section_4_1_phase3(
     options: Algorithm1Options,
     tw: int,
     ta: int,
-) -> tuple[int, Any] | None:
+) -> WeightSearchResult:
     phase3 = _build_section_4_1_search(options)
     phase3.optimizer.add(phase3.weight_expr([phase3.w[i] for i in range(39)]) == tw)
     phase3.constrain_modular_zero_range("A", 19, 38, method1=options.op6)
     phase3.constrain_modular_zero_range("E", 23, 38, method1=options.op3)
     phase3.optimizer.add(phase3.weight_expr([phase3.a_rows[i] for i in range(39)]) == ta)
     weight_e_words = [phase3.e_rows[i] for i in range(39)]
-    phase3.minimize_weight(weight_e_words)
-    model3 = phase3.solve_model(timeout_ms=timeout_ms, random_seed=seed, solver_threads=solver_threads)
-    if model3 is None:
-        return None
-    return phase3.model_weight(model3, weight_e_words), phase3.result_from_model(model3)
+    return _search_minimum_weight(
+        phase3,
+        weight_e_words,
+        label="phase3",
+        seed=seed,
+        timeout_ms=timeout_ms,
+        solver_threads=solver_threads,
+    )
 
 
 def _solve_msgmod_table13(
@@ -214,19 +302,29 @@ def _solve_msgmod_table13(
 
 def cmd_section_4_1_search(args: argparse.Namespace) -> int:
     options = _section_4_1_options(args)
-    tw = _solve_section_4_1_phase1(args.seed, args.timeout_ms, args.solver_threads, options)
-    if tw is None:
-        print("UNSAT/UNKNOWN at Section 4.1 phase 1 (minimize ΔW)")
+    phase1_result = _solve_section_4_1_phase1(args.seed, args.timeout_ms, args.solver_threads, options)
+    if phase1_result.weight is None:
+        print(f"{phase1_result.status} at Section 4.1 phase 1 (search ΔW)")
         return 2
-    ta = _solve_section_4_1_phase2(args.seed, args.timeout_ms, args.solver_threads, options, tw)
-    if ta is None:
-        print("UNSAT/UNKNOWN at Section 4.1 phase 2 (minimize ΔA)")
+    tw = phase1_result.weight
+    if not phase1_result.proven_optimal:
+        print(f"phase1 best known tw = {tw} ({phase1_result.status}; optimum not proven)")
+    phase2_result = _solve_section_4_1_phase2(args.seed, args.timeout_ms, args.solver_threads, options, tw)
+    if phase2_result.weight is None:
+        print(f"{phase2_result.status} at Section 4.1 phase 2 (search ΔA)")
         return 2
+    ta = phase2_result.weight
+    if not phase2_result.proven_optimal:
+        print(f"phase2 best known tA = {ta} ({phase2_result.status}; optimum not proven)")
     phase3_result = _solve_section_4_1_phase3(args.seed, args.timeout_ms, args.solver_threads, options, tw, ta)
-    if phase3_result is None:
-        print("UNSAT/UNKNOWN at Section 4.1 phase 3 (minimize ΔE)")
+    if phase3_result.weight is None:
+        print(f"{phase3_result.status} at Section 4.1 phase 3 (search ΔE)")
         return 2
-    weight_e, result = phase3_result
+    weight_e = phase3_result.weight
+    if not phase3_result.proven_optimal:
+        print(f"phase3 best known tE = {weight_e} ({phase3_result.status}; optimum not proven)")
+    assert phase3_result.model is not None
+    result = phase3.result_from_model(phase3_result.model)
 
     print("SAT: Section 4.1 39-step characteristic search")
     print(f"phase1 tw = {tw}")

@@ -66,17 +66,22 @@ transition under signed differences:
 ```bash
 python3 enumerate_sha2_boolean_conditions.py --function if --pattern u===
 python3 enumerate_sha2_boolean_conditions.py --function all --format json
+python3 enumerate_sha2_component_conditions.py --component sigma1 --output-bit 19 --pattern 'n==u'
+python3 enumerate_sha2_component_conditions.py --component addition --pattern '==nn='
 python3 extract_fig6_conditions.py
 python3 extract_fig6_conditions.py --show-components --component Sigma1 --round 7
+python3 extract_fig6_conditions.py --show-additions --equation W --round 22 --bit 19
 python3 check_fig6_conditions.py --skip-full-model
 ```
 
 `extract_fig6_conditions.py` is the pure symbolic path: it reads only the
-Fig. 6 signed-difference patterns, enumerates all possible component output
-symbols, and records the branch-qualified conditions from the `IF`, `MAJ`,
-`Sigma0`, `Sigma1`, `sigma0`, and `sigma1` tables. The published collision pair
-is not used by this extraction; it is used only by `check_fig6_conditions.py`
-for independent regression validation.
+Fig. 6 signed-difference patterns, resolves component outputs through complete
+local `W_i`, `E_i`, and `A_i` equations, and then queries the `IF`, `MAJ`,
+`Sigma0`, `Sigma1`, `sigma0`, `sigma1`, and exact full-adder condition tables.
+Conditions are retained only when every equation-compatible output/carry branch
+implies them. The published collision pair is not used by this extraction; it
+is used only by `check_fig6_conditions.py` for independent regression
+validation.
 
 `char-search` now follows Algorithm 1 from the paper directly. The switches
 `--op1` through `--op8` control fast/full Boolean models, Method-1/Method-2

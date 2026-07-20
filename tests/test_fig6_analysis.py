@@ -9,6 +9,8 @@ from sha256_reduced.fig6_analysis import (
     analyze_fig6,
     condition_key,
     fig6_witness,
+    local_condition_branches,
+    modular_addition_sources,
     symbolic_condition_branches,
     symbolic_boolean_sources,
     symbolic_component_transitions,
@@ -29,6 +31,28 @@ EXPECTED_FIG6_BOOLEAN_GAPS = {
 EXPECTED_SYMBOLIC_BOOLEAN_GAPS = {
     "W20[4] == W20[6]",
     "W20[31] == W20[22]",
+    "A15[29] == A6[29]",
+}
+
+EXPECTED_EQUATION_RESOLVED_GAPS = {
+    "W7[22] != W7[18]",
+    "W7[13] != W7[9]",
+    "W7[23] != W7[8]",
+    "W7[11] == W7[22]",
+    "W7[14] == W7[31]",
+    "W7[20] == W7[31]",
+    "W20[4] == W20[6]",
+    "W20[31] == W20[22]",
+    "W20[31] != W20[1]",
+    "W20[30] != W20[0]",
+    "W20[25] != W20[16]",
+    "W20[21] != W20[14]",
+    "E7[21] != E7[3]",
+    "E7[10] != E7[15]",
+    "A3[4] == A4[4]",
+    "A3[18] != A4[18]",
+    "A14[18] == A14[6]",
+    "A14[8] == A14[17]",
     "A15[29] == A6[29]",
 }
 
@@ -76,19 +100,38 @@ class Fig6AnalysisTests(unittest.TestCase):
         add_component_condition_branch(model, branch)
         self.assertEqual(model.solver.check(), model.z3.sat)
 
-    def test_symbolic_boolean_analysis_recovers_candidate_conditions(self) -> None:
+    def test_local_tables_have_seventy_fig6_candidate_conditions(self) -> None:
+        keys = {
+            condition_key(condition)
+            for branch in local_condition_branches()
+            for condition in branch.conditions
+        }
+        recovered = {condition_key(condition) for condition in FIG6_CONDITIONS if condition_key(condition) in keys}
+        missing = {str(condition) for condition in FIG6_CONDITIONS if condition_key(condition) not in keys}
+        self.assertEqual(len(recovered), 70)
+        self.assertEqual(missing, EXPECTED_SYMBOLIC_BOOLEAN_GAPS)
+
+    def test_complete_equations_filter_ambiguous_component_conditions(self) -> None:
         sources = symbolic_boolean_sources()
         recovered = {condition_key(condition) for condition in FIG6_CONDITIONS if condition_key(condition) in sources}
         missing = {str(condition) for condition in FIG6_CONDITIONS if condition_key(condition) not in sources}
-        self.assertEqual(len(recovered), 70)
-        self.assertEqual(missing, EXPECTED_SYMBOLIC_BOOLEAN_GAPS)
+        self.assertEqual(len(recovered), 54)
+        self.assertEqual(missing, EXPECTED_EQUATION_RESOLVED_GAPS)
+
+    def test_modular_addition_table_is_applied_to_all_update_stages(self) -> None:
+        sources = modular_addition_sources()
+        self.assertGreater(len(sources), 0)
+        self.assertIn(
+            (("W", 6, 29), "==", ("W", 22, 29)),
+            sources,
+        )
 
     def test_fig6_report_can_skip_full_model_and_still_classify_missing_conditions(self) -> None:
         report = analyze_fig6(run_full_model=False)
         self.assertTrue(report.witness_matches_characteristic)
         self.assertTrue(report.witness_is_collision)
         self.assertEqual(report.full_model_satisfiable, "skipped")
-        self.assertEqual(Counter(result.source for result in report.conditions), Counter({"boolean": 70, "missing": 3}))
+        self.assertEqual(Counter(result.source for result in report.conditions), Counter({"component": 54, "missing": 19}))
         self.assertEqual({str(result.condition) for result in report.conditions if not result.witness_holds}, EXPECTED_FIG6_BOOLEAN_GAPS)
 
 

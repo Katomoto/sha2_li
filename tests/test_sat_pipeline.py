@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from unittest.mock import patch
 
+import search_sha256
 from search_sha256 import (
     SECTION_4_1_DELTA_A_ZERO_RANGE,
     SECTION_4_1_DELTA_E_ZERO_RANGE,
@@ -86,6 +88,103 @@ class SatPipelineDataTests(unittest.TestCase):
 
     def test_section_4_1_delta_e_zero_range_matches_paper(self) -> None:
         self.assertEqual(list(SECTION_4_1_DELTA_E_ZERO_RANGE), list(range(23, 39)))
+
+    def test_phase1_finds_any_model_then_tightens_weight_bounds(self) -> None:
+        class FakeWeight:
+            def __le__(self, bound: int) -> tuple[str, int]:
+                return ("weight<=", bound)
+
+        class FakeOptimizer:
+            @staticmethod
+            def assertions() -> tuple[str, ...]:
+                return ("base",)
+
+        class FakeSolver:
+            def __init__(self) -> None:
+                self.results = ["sat", "sat", "unsat"]
+                self.weights = [9, 7]
+                self.check_index = -1
+                self.added: list[object] = []
+
+            def add(self, *constraints: object) -> None:
+                self.added.extend(constraints)
+
+            def check(self) -> str:
+                self.check_index += 1
+                return self.results[self.check_index]
+
+            def model(self) -> int:
+                return self.weights[self.check_index]
+
+            @staticmethod
+            def reason_unknown() -> str:
+                return ""
+
+        fake_solver = FakeSolver()
+
+        class FakeZ3:
+            sat = "sat"
+            unsat = "unsat"
+
+            @staticmethod
+            def Solver() -> FakeSolver:
+                return fake_solver
+
+        class FakeSearch:
+            z3 = FakeZ3()
+            optimizer = FakeOptimizer()
+            w = tuple(range(39))
+
+            @staticmethod
+            def weight_expr(_words: object) -> FakeWeight:
+                return FakeWeight()
+
+            @staticmethod
+            def model_weight(model: int, _words: object) -> int:
+                return model
+
+        with (
+            patch.object(search_sha256, "_build_section_4_1_search", return_value=FakeSearch()),
+            patch.object(search_sha256, "configure_solver_instance"),
+        ):
+            result = search_sha256._solve_section_4_1_phase1(1, 1000, 1, object())
+
+        self.assertEqual(result.weight, 7)
+        self.assertEqual(result.status, "UNSAT")
+        self.assertTrue(result.proven_optimal)
+        self.assertEqual(fake_solver.added, ["base", ("weight<=", 8), ("weight<=", 6)])
+
+    def test_solver_status_distinguishes_timeout_from_other_unknown(self) -> None:
+        class FakeZ3:
+            sat = "sat"
+            unsat = "unsat"
+
+        class FakeSolver:
+            def __init__(self, reason: str) -> None:
+                self.reason = reason
+
+            def reason_unknown(self) -> str:
+                return self.reason
+
+        self.assertEqual(
+            search_sha256._solver_status(FakeSolver("timeout"), "unknown", FakeZ3()),
+            ("TIMEOUT", "timeout"),
+        )
+        self.assertEqual(
+            search_sha256._solver_status(FakeSolver("incomplete theory"), "unknown", FakeZ3()),
+            ("UNKNOWN", "incomplete theory"),
+        )
+
+    def test_all_section_4_1_phases_use_bounded_sat_search(self) -> None:
+        for function in (
+            search_sha256._solve_section_4_1_phase1,
+            search_sha256._solve_section_4_1_phase2,
+            search_sha256._solve_section_4_1_phase3,
+        ):
+            with self.subTest(function=function.__name__):
+                source = inspect.getsource(function)
+                self.assertIn("_search_minimum_weight", source)
+                self.assertNotIn("minimize_weight", source)
 
 if __name__ == "__main__":
     unittest.main()

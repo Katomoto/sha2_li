@@ -21,7 +21,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-full-model",
         action="store_true",
-        help="Skip the expensive whole-model SMT implication pass and report only witness/Boolean results.",
+        help="Skip separate validation of the published conditions and report extracted table results.",
     )
     parser.add_argument(
         "--format",
@@ -75,7 +75,7 @@ def main() -> int:
     print(f"condition_counts: {dict(counts)}")
 
     for result in report.conditions:
-        if not args.show_all and result.source == "boolean":
+        if not args.show_all and result.source == "component":
             continue
         print(
             f"{result.condition}: source={result.source}, "
