@@ -56,6 +56,7 @@ Useful entry points:
 python3 search_sha256.py char-search --rounds 12 --shape single --single-word 5 --paper-objective
 python3 search_sha256.py char-search --rounds 31 --shape 31 --paper-objective --timeout-ms 600000
 python3 search_sha256.py char-search --rounds 39 --shape 39 --paper-objective --timeout-ms 600000
+python3 search_sha256.py check-4-1-characteristic --vector table5 --timeout-ms 60000
 python3 search_sha256.py check-table13-conditions
 python3 search_sha256.py msgmod-solve-table13 --timeout-ms 600000
 ```

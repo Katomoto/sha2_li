@@ -693,6 +693,31 @@ class CharacteristicSearch:
         return "".join(chars)
 
 
+class MessageScheduleSearch(CharacteristicSearch):
+    """Signed-difference model containing only the SHA-256 message schedule."""
+
+    def __init__(self, rounds: int, *, prefix: str = "dw", options: Algorithm1Options | None = None) -> None:
+        z3 = require_z3()
+        if not 0 <= rounds <= len(K):
+            raise ValueError(f"rounds must be between 0 and {len(K)}")
+        self.z3 = z3
+        self.rounds = rounds
+        self.prefix = prefix
+        self.options = options or Algorithm1Options()
+        self.optimizer = z3.Optimize()
+
+        self.w = [DiffWord.fresh(f"{prefix}_w_{i}", self.optimizer) for i in range(max(16, rounds))]
+        self.value_w = [z3.BitVec(f"{prefix}_Wval_{i}", 32) for i in range(max(16, rounds))]
+        self.a_rows: dict[int, DiffWord] = {}
+        self.e_rows: dict[int, DiffWord] = {}
+        self.value_a: dict[int, Any] = {}
+        self.value_e: dict[int, Any] = {}
+        self.final_state: tuple[DiffWord, ...] = ()
+
+        for i in range(16, rounds):
+            self._build_sha2_w(i)
+
+
 def add2_target(solver: Any, name: str, x: DiffWord, y: DiffWord, target: DiffWord) -> None:
     z3 = require_z3()
     carry_bits = [DiffBit(z3.Bool(f"{name}_c_v_0"), z3.Bool(f"{name}_c_d_0"))]

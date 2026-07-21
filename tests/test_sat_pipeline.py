@@ -22,6 +22,7 @@ from sha256_reduced.smt_characteristic import (
     expansion_rules_method2,
 )
 from sha256_reduced.smt_value import z3_available
+from sha256_reduced.vectors import TABLE_5_39_STEP_SFS
 
 
 class SatPipelineDataTests(unittest.TestCase):
@@ -144,7 +145,7 @@ class SatPipelineDataTests(unittest.TestCase):
                 return model
 
         with (
-            patch.object(search_sha256, "_build_section_4_1_search", return_value=FakeSearch()),
+            patch.object(search_sha256, "_build_section_4_1_message_search", return_value=FakeSearch()),
             patch.object(search_sha256, "configure_solver_instance"),
         ):
             result = search_sha256._solve_section_4_1_phase1(1, 1000, 1, object())
@@ -185,6 +186,32 @@ class SatPipelineDataTests(unittest.TestCase):
                 source = inspect.getsource(function)
                 self.assertIn("_search_minimum_weight", source)
                 self.assertNotIn("minimize_weight", source)
+
+    def test_known_message_characteristic_validation_fixes_every_w_row(self) -> None:
+        class FakeSearch:
+            def __init__(self) -> None:
+                self.constraints: dict[tuple[str, int], str] = {}
+
+            def constrain_word(self, kind: str, index: int, pattern: str) -> None:
+                self.constraints[(kind, index)] = pattern
+
+        search = FakeSearch()
+        search_sha256._constrain_known_message_characteristic(search, TABLE_5_39_STEP_SFS)
+
+        self.assertEqual(len(search.constraints), 39)
+        self.assertEqual(
+            {
+                index
+                for (kind, index), pattern in search.constraints.items()
+                if kind == "W" and ("u" in pattern or "n" in pattern)
+            },
+            SECTION_4_1_W_INDICES,
+        )
+
+    def test_phase1_uses_message_schedule_only_model(self) -> None:
+        source = inspect.getsource(search_sha256._solve_section_4_1_phase1)
+        self.assertIn("_build_section_4_1_message_search", source)
+        self.assertNotIn("_build_section_4_1_search(options)", source)
 
 if __name__ == "__main__":
     unittest.main()

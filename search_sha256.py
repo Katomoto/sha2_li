@@ -5,16 +5,17 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from dataclasses import dataclass
 from typing import Any
 
 from sha256_reduced.conditions import TABLE14_15_CONDITIONS, failing_conditions
 from sha256_reduced.core import digest_blocks, expand_message, format_words
-from sha256_reduced.differential import trace_collision_second_block
-from sha256_reduced.smt_characteristic import Algorithm1Options, CharacteristicSearch
+from sha256_reduced.differential import trace_collision_second_block, trace_sfs
+from sha256_reduced.smt_characteristic import Algorithm1Options, CharacteristicSearch, MessageScheduleSearch
 from sha256_reduced.smt_value import Sha256ValueModel
 from sha256_reduced.solver import MissingSolverError, configure_solver_instance
-from sha256_reduced.vectors import TABLE_13_31_STEP_COLLISION
+from sha256_reduced.vectors import TABLE_13_31_STEP_COLLISION, TABLE_25_39_STEP_SFS, TABLE_5_39_STEP_SFS
 
 SECTION_4_1_W_INDICES = frozenset({8, 9, 10, 11, 12, 16, 17, 24, 26})
 SECTION_4_1_DELTA_A_ZERO_RANGE = range(19, 39)
@@ -44,7 +45,7 @@ def _solver_status(solver: Any, check_result: Any, z3: Any) -> tuple[str, str | 
 
 
 def _search_minimum_weight(
-    search: CharacteristicSearch,
+    search: Any,
     words: list[Any],
     *,
     label: str,
@@ -209,13 +210,56 @@ def _build_section_4_1_search(options: Algorithm1Options) -> CharacteristicSearc
     return search
 
 
+def _build_section_4_1_message_search(options: Algorithm1Options) -> MessageScheduleSearch:
+    search = MessageScheduleSearch(39, options=options)
+    search.require_nonzero_message_difference()
+    for i in range(39):
+        if i not in SECTION_4_1_W_INDICES:
+            search.constrain_modular_zero("W", i, method1=options.op7)
+    return search
+
+
+def _constrain_known_message_characteristic(search: MessageScheduleSearch, vector: Any) -> None:
+    if vector.rounds != 39:
+        raise ValueError("Section 4.1 validation requires a 39-step characteristic")
+    for row in trace_sfs(vector):
+        if row.w is not None:
+            search.constrain_word("W", row.step, row.w)
+
+
+def _check_known_section_4_1_characteristic(
+    *,
+    vector: Any,
+    seed: int,
+    timeout_ms: int,
+    solver_threads: int | None,
+    options: Algorithm1Options,
+) -> tuple[str, str | None, float]:
+    search = _build_section_4_1_message_search(options)
+    _constrain_known_message_characteristic(search, vector)
+
+    solver = search.z3.Solver()
+    solver.add(*search.optimizer.assertions())
+    configure_solver_instance(
+        solver,
+        timeout_ms=timeout_ms,
+        random_seed=seed,
+        threads=solver_threads,
+    )
+    started = time.monotonic()
+    check_result = solver.check()
+    elapsed = time.monotonic() - started
+    status, reason = _solver_status(solver, check_result, search.z3)
+    return status, reason, elapsed
+
+
 def _solve_section_4_1_phase1(
     seed: int,
     timeout_ms: int,
     solver_threads: int | None,
     options: Algorithm1Options,
 ) -> WeightSearchResult:
-    phase1 = _build_section_4_1_search(options)
+    phase1 = _build_section_4_1_message_search(options)
     weight_w_words = [phase1.w[i] for i in range(39)]
     return _search_minimum_weight(
         phase1,
@@ -334,6 +378,28 @@ def cmd_section_4_1_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_section_4_1_characteristic(args: argparse.Namespace) -> int:
+    options = _section_4_1_options(args)
+    vector = TABLE_5_39_STEP_SFS if args.vector == "table5" else TABLE_25_39_STEP_SFS
+    status, reason, elapsed = _check_known_section_4_1_characteristic(
+        vector=vector,
+        seed=args.seed,
+        timeout_ms=args.timeout_ms,
+        solver_threads=args.solver_threads,
+        options=options,
+    )
+    suffix = f" ({reason})" if reason else ""
+    print(f"{status}: fixed known characteristic for {vector.name}{suffix}")
+    print(f"solver time: {elapsed:.3f}s")
+    if status == "SAT":
+        print("The SHA2-W signed-difference encoding accepts the published message characteristic.")
+        return 0
+    if status == "UNSAT":
+        print("The SHA2-W encoding rejects a published valid message characteristic; inspect message expansion.")
+        return 1
+    return 2
+
+
 def cmd_msgmod_solve_table13(args: argparse.Namespace) -> int:
     solution = _solve_msgmod_table13(args.seed, args.timeout_ms, args.solver_threads)
     if solution is None:
@@ -408,6 +474,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optionally add value-transition constraints only on these steps.",
     )
     s41.set_defaults(func=cmd_section_4_1_search)
+
+    known = sub.add_parser(
+        "check-4-1-characteristic",
+        help="Fix a published 39-step W characteristic and check whether the SHA2-W encoding is SAT.",
+    )
+    known.add_argument("--vector", choices=("table5", "table25"), default="table5")
+    known.add_argument("--timeout-ms", type=int, default=60_000)
+    known.add_argument("--seed", type=int, default=1)
+    known.add_argument("--solver-threads", type=int, default=1)
+    known.add_argument("--op1", type=int, choices=(0, 1), default=1)
+    known.add_argument("--op2", type=int, choices=(0, 1), default=1)
+    known.add_argument("--op3", type=int, choices=(0, 1), default=1)
+    known.add_argument("--op4", type=int, choices=(0, 1), default=1)
+    known.add_argument("--op5", type=int, choices=(0, 1), default=1)
+    known.add_argument("--op6", type=int, choices=(0, 1), default=1)
+    known.add_argument("--op7", type=int, choices=(0, 1), default=1)
+    known.add_argument("--op8", type=int, choices=(0, 1), default=0)
+    known.add_argument("--value-transition-steps", type=int, nargs="*", default=None)
+    known.set_defaults(func=cmd_check_section_4_1_characteristic)
 
     msgmod = sub.add_parser(
         "msgmod-solve-table13",
